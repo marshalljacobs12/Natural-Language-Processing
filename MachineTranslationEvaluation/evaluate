@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+import argparse # optparse is deprecated
+from itertools import islice # slicing for iterators
+import math
+from string import punctuation
+
+def word_matches(h, ref):
+    return sum(1 for w in h if w in ref)
+
+def meteor(h, ref):
+    alpha = 0.99
+    recall = float(word_matches(h, ref)) / float(len(ref))
+    precision = float(word_matches(h, ref)) / float(len(h))
+
+    numerator = (recall * precision)
+    denominator = (1-alpha) * recall + alpha * precision
+
+    if denominator == 0:
+        return 0
+    else:
+        accuracy = numerator / denominator
+        return accuracy
+
+def bleu(h, ref):
+    k = 3 #maximum n-gram evaluated is of size 4
+    h_len = len(h) #length of machine translation
+
+    h_text = ' '.join(h)
+    h_text = h_text.translate(None, punctuation)
+    h_text = h_text.lower()
+    ref_text = ' '.join(ref)
+    ref_text = ref_text.translate(None, punctuation)
+    ref_text = ref_text.lower()
+
+    matched_n_grams = [1, 1, 1]
+    total_n_grams = [1, 1, 1]
+
+    precision_scores = [0.0, 0.0, 0.0]
+
+    for i in range(len(h)):
+        for j in range(0, k):
+            if i + j < h_len:
+                total_n_grams[j] = total_n_grams[j] + 1
+                gram = h[i:i+j+1]
+                gram_test = ' '.join(gram)
+                gram_test = gram_test.translate(None, punctuation)
+                gram_test = gram_test.lower()
+                if gram_test in ref_text:
+                    matched_n_grams[j] = matched_n_grams[j] + 1
+
+    brevity_penalty = math.exp(min(0, (1 - (float(len(ref))/float(len(h))))))
+
+    for i in range(len(precision_scores)):
+        precision_scores[i] = math.log(float(matched_n_grams[i]) / float(total_n_grams[i]))
+
+    blue_score = 0
+
+    for i in range(len(precision_scores)):
+        blue_score = blue_score + float(precision_scores[i] / k)
+
+    blue_score = math.exp(blue_score) * brevity_penalty
+
+    return blue_score
+
+def main():
+    parser = argparse.ArgumentParser(description='Evaluate translation hypotheses.')
+    parser.add_argument('-i', '--input', default='data/hyp1-hyp2-ref',
+            help='input file (default data/hyp1-hyp2-ref)')
+    parser.add_argument('-n', '--num_sentences', default=None, type=int,
+            help='Number of hypothesis pairs to evaluate')
+    # note that if x == [1, 2, 3], then x[:None] == x[:] == x (copy); no need for sys.maxint
+    opts = parser.parse_args()
+ 
+    # we create a generator and avoid loading all sentences into a list
+    def sentences():
+        with open(opts.input) as f:
+            for pair in f:
+                yield [sentence.strip().split() for sentence in pair.split(' ||| ')]
+ 
+    # note: the -n option does not work in the original code
+    for h1, h2, ref in islice(sentences(), opts.num_sentences):
+        rset = set(ref)
+        h1_match = 1.0 * meteor(h1, rset) + 1.0 * bleu(h1, rset)
+        h2_match = 1.0 * meteor(h2, rset) + 1.0 * bleu(h2, rset)
+        print(1 if h1_match > h2_match else # \begin{cases}
+                (0 if h1_match == h2_match
+                    else -1)) # \end{cases}
+ 
+# convention to allow import of this file as a module
+if __name__ == '__main__':
+    main()
